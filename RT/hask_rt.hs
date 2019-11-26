@@ -2,8 +2,12 @@
 
 import System.Random
 import Data.List
+import Data.Char
 import System.IO  
 import Numeric
+import Data.Bits
+import Data.Bits.Extras
+import qualified Data.ByteString.Lazy as BL
 
 data Vec3 = Vec3{x :: Float, y :: Float, z :: Float}
 
@@ -41,9 +45,20 @@ clamp min max x = if (x<min) then min else (if (x>max) then max else x)
 reflect :: Vec3 -> Vec3 -> Vec3
 reflect ray normal = ray - ((fVec3 (2.0 * (scalMul ray normal))) * normal)
 
+
+
 -- TODO: make this actually random
+
+--randItvlH :: Float -> Float -> RandomGen -> Float
+--randItvlH min max gn = randomR (min, max) gn
+
+newRand = randomIO :: IO Float
+
 randItvl :: Float -> Float -> Float
-randItvl min max = (min+max)*0.5
+--randItvl min max = do{
+--    randVal <- randomIO;
+--    remap (0.0, 1.0) (min, max) randVal}
+randItvl min max = 0.5 * (min + max)
 
 
 -- Polar coords
@@ -342,12 +357,68 @@ testRay3 = (Ray ray3Start (normalize ((Vec3 6.38274 (-0.477723) 4.25429) - ray3S
 correctRay3ItsctRes = (Vec3 7.11149 0.107107 2.06615)
 testRay3ItsctRes = intersectFace testFace2 testRay3
 
---main = do
---    g <- getStdGen
---   print $ take 10 (randomRs ('a', 'z') g)
 
--- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
+-- !     :anger:   my haskell doesn't want to recognize Word8 or GHC.Word.Word8 as types, but will gladly make functions that return those exact same types
+
+-- ? Should the \0 also be written?
+bmpFilename = [(w8 (fromEnum 'B')), (w8 (fromEnum 'M'))]
+
+getExtraBytes :: Int -> Int
+getExtraBytes w = mod (4 - (mod (w * 3) 4)) 4
+-- Padding for lines so they're all a multiple of 4 bytes long
+
+--mkExtraBytes :: Int -> [Word8]
+mkExtraBytes 0 = []
+mkExtraBytes 1 = [(w8 0)]
+mkExtraBytes 2 = [(w8 0), (w8 0)]
+mkExtraBytes 3 = [(w8 0), (w8 0), (w8 0)]
+-- mkExtraBytes _ = undefined -- ! <-This should never be called
+
+--Black magic headers
+mkHeadersInt :: (Int, Int) -> [Int]
+mkHeadersInt (w, h) = (paddedsize + 54):0:54:40:w:h:((shift 24 16) + (shift 1 0)):0:paddedsize:0:0:0:0:[] where
+    extrabytes = getExtraBytes w
+    paddedsize = ((w * 3) + extrabytes) * h
+
+--intToWord8 :: Int -> [Word8]
+intToWord8 val = reverse [(w8 (shift val (-24))), (w8 (shift val (-16))), (w8 (shift val (-8))), (w8 val)]
+
+--mkHeaders :: (Int, Int) -> [Word8]
+mkHeaders dims = concat (map intToWord8 (mkHeadersInt dims))
+
+--reduce :: Float -> GHC.Word.Word8
+reduce num
+    | (num >= 1.0) = (w8 255)
+    | (num <= 0.0) = (w8 0)
+    | otherwise = (w8 (floor (num*255.0)))
+    
+--Dumb bgr colors because that's what the stackoverflow solution used
+--vec3ToW8L :: Vec3 -> [Word8]
+vec3ToW8L (Vec3 r g b) = (reduce b):(reduce g):(reduce r):[]
+    
+--colorsToBytestringH :: (Int, Int) -> [Vec3] -> (Int, Int) -> [Word8] -> [Word8]
+colorsToW8LH _ [] _ res = res
+colorsToW8LH (w, h) (col:cols) (wi, hi) res
+    | (wi == 0) = colorsToW8LH (w, h) (col:cols) (w, hi+1) (res ++ (mkExtraBytes (getExtraBytes w))) --BMPs have padding at the end of each line.
+    | otherwise = colorsToW8LH (w, h) cols (wi-1, hi) (res ++ (vec3ToW8L col)) -- And they have their colors writen from bottom to top.
+    
+--colorsToW8L :: (Int, Int) -> [Vec3] -> [Word8]
+colorsToW8L (w, h) (col:cols) = colorsToW8LH (w, h) cols (w-1, 0) (vec3ToW8L col)
+    
+--makeBMP :: (Int, Int) -> [Vec3] -> [Word8]
+makeBMP dims cols = bmpFilename ++ (mkHeaders dims) ++ (colorsToW8L dims cols)
+    
+    
+writeImage :: (Int, Int) -> [Vec3] -> IO Bool
+writeImage dimensions pixels = undefined
+    
+width = 100.0
+height = 100.0
 
 main :: IO ()
-main = writeFile "output" $ show $ (traceMany (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (512.0, 512.0, 0.5) (Ray (Vec3 0.0 0.0 (-15.0)) (Vec3 (0.0) (0.0) (-1.0))))
-
+main = do 
+    -- writeFile "output" $ show $ ...
+    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceMany (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, 0.5) (Ray (Vec3 0.0 0.0 (-15.0)) (Vec3 (0.0) (0.0) (-1.0)))) ))
+        
+        
+-- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
