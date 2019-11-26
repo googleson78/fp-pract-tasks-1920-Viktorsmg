@@ -374,6 +374,11 @@ mkExtraBytes 2 = [(w8 0), (w8 0)]
 mkExtraBytes 3 = [(w8 0), (w8 0), (w8 0)]
 -- mkExtraBytes _ = undefined -- ! <-This should never be called
 
+mkExtraBytesIns 0 res = res
+mkExtraBytesIns 1 res = (w8 0):res
+mkExtraBytesIns 2 res = (w8 0):(w8 0):res
+mkExtraBytesIns 3 res = (w8 0):(w8 0):(w8 0):res
+
 --Black magic headers
 mkHeadersInt :: (Int, Int) -> [Int]
 mkHeadersInt (w, h) = (paddedsize + 54):0:54:40:w:h:((shift 24 16) + (shift 1 0)):0:paddedsize:0:0:0:0:[] where
@@ -394,26 +399,28 @@ reduce num
     
 --Dumb bgr colors because that's what the stackoverflow solution used
 --vec3ToW8L :: Vec3 -> [Word8]
-vec3ToW8L (Vec3 r g b) = (reduce b):(reduce g):(reduce r):[]
-    
+vec3ToW8L (Vec3 r g b) = [(reduce b), (reduce g), (reduce r)]
+
+addVec3toW8L (Vec3 r g b) res = (reduce r):(reduce g):(reduce b):res
+
 --colorsToBytestringH :: (Int, Int) -> [Vec3] -> (Int, Int) -> [Word8] -> [Word8]
 colorsToW8LH _ [] _ res = res
 colorsToW8LH (w, h) (col:cols) (wi, hi) res
-    | (wi == 0) = colorsToW8LH (w, h) (col:cols) (w, hi+1) (res ++ (mkExtraBytes (getExtraBytes w))) --BMPs have padding at the end of each line.
-    | otherwise = colorsToW8LH (w, h) cols (wi-1, hi) (res ++ (vec3ToW8L col)) -- And they have their colors writen from bottom to top.
+    | (wi == 0) = colorsToW8LH (w, h) (col:cols) (w, hi+1) (mkExtraBytesIns (getExtraBytes w) res) --BMPs have padding at the end of each line.
+    | otherwise = colorsToW8LH (w, h) cols (wi-1, hi) (addVec3toW8L col res) -- And they have their colors writen from bottom to top.
     
 --colorsToW8L :: (Int, Int) -> [Vec3] -> [Word8]
 colorsToW8L (w, h) (col:cols) = colorsToW8LH (w, h) cols (w-1, 0) (vec3ToW8L col)
     
 --makeBMP :: (Int, Int) -> [Vec3] -> [Word8]
-makeBMP dims cols = bmpFilename ++ (mkHeaders dims) ++ (colorsToW8L dims cols)
+makeBMP dims cols = bmpFilename ++ (mkHeaders dims) ++ (reverse (colorsToW8L dims cols))
     
     
 writeImage :: (Int, Int) -> [Vec3] -> IO Bool
 writeImage dimensions pixels = undefined
     
-width = 100.0
-height = 100.0
+width = 1000.0
+height = 1000.0
 
 main :: IO ()
 main = do 
