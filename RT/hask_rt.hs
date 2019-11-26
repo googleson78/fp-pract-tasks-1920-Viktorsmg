@@ -428,10 +428,10 @@ writeImage dimensions pixels = undefined
 
 -- These 2 are resolutions, they might *say* float, but they shouldn't have anything after the point.
 width :: Float
-width = 2048.0
+width = 1024.0
 
 height :: Float
-height = 2048.0
+height = 1024.0
 
 -- This one is more true to its float type
 fov :: Float
