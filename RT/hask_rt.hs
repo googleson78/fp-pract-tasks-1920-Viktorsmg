@@ -7,6 +7,7 @@ import System.IO
 import Numeric
 import Data.Bits
 import Data.Bits.Extras
+import GHC.Word
 import qualified Data.ByteString.Lazy as BL
 
 data Vec3 = Vec3{x :: Float, y :: Float, z :: Float}
@@ -370,7 +371,7 @@ getExtraBytes :: Int -> Int
 getExtraBytes w = mod (4 - (mod (w * 3) 4)) 4
 -- Padding for lines so they're all a multiple of 4 bytes long
 
---mkExtraBytes :: Int -> [Word8]
+mkExtraBytes :: Int -> [Word8]
 mkExtraBytes 0 = []
 mkExtraBytes 1 = [(w8 0)]
 mkExtraBytes 2 = [(w8 0), (w8 0)]
@@ -388,34 +389,34 @@ mkHeadersInt (w, h) = (paddedsize + 54):0:54:40:w:h:((shift 24 16) + (shift 1 0)
     extrabytes = getExtraBytes w
     paddedsize = ((w * 3) + extrabytes) * h
 
---intToWord8 :: Int -> [Word8]
+intToWord8 :: Int -> [Word8]
 intToWord8 val = reverse [(w8 (shift val (-24))), (w8 (shift val (-16))), (w8 (shift val (-8))), (w8 val)]
 
---mkHeaders :: (Int, Int) -> [Word8]
+mkHeaders :: (Int, Int) -> [Word8]
 mkHeaders dims = concat (map intToWord8 (mkHeadersInt dims))
 
---reduce :: Float -> GHC.Word.Word8
+reduce :: Float -> Word8
 reduce num
     | (num >= 1.0) = (w8 255)
     | (num <= 0.0) = (w8 0)
     | otherwise = (w8 (floor (num*255.0)))
     
 --Dumb bgr colors because that's what the stackoverflow solution used
---vec3ToW8L :: Vec3 -> [Word8]
+vec3ToW8L :: Vec3 -> [Word8]
 vec3ToW8L (Vec3 r g b) = [(reduce b), (reduce g), (reduce r)]
 
 addVec3toW8L (Vec3 r g b) res = (reduce r):(reduce g):(reduce b):res
 
---colorsToBytestringH :: (Int, Int) -> [Vec3] -> (Int, Int) -> [Word8] -> [Word8]
+colorsToW8LH :: (Int, Int) -> [Vec3] -> (Int, Int) -> [Word8] -> [Word8]
 colorsToW8LH _ [] _ res = res
 colorsToW8LH (w, h) (col:cols) (wi, hi) res
     | (wi == 0) = colorsToW8LH (w, h) (col:cols) (w, hi+1) (mkExtraBytesIns (getExtraBytes w) res) --BMPs have padding at the end of each line.
     | otherwise = colorsToW8LH (w, h) cols (wi-1, hi) (addVec3toW8L col res) -- And they have their colors writen from bottom to top.
     
---colorsToW8L :: (Int, Int) -> [Vec3] -> [Word8]
+colorsToW8L :: (Int, Int) -> [Vec3] -> [Word8]
 colorsToW8L (w, h) (col:cols) = colorsToW8LH (w, h) cols (w-1, 0) (vec3ToW8L col)
     
---makeBMP :: (Int, Int) -> [Vec3] -> [Word8]
+makeBMP :: (Int, Int) -> [Vec3] -> [Word8]
 makeBMP dims cols = bmpFilename ++ (mkHeaders dims) ++ (reverse (colorsToW8L dims cols))
 
 degToRad :: Float -> Float
