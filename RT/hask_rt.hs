@@ -187,14 +187,14 @@ closest :: Vec3 -> [(Face, Vec3)] -> (Face, Vec3)
 closest centre [] = (nullFace, centre)
 closest centre (tup:vecs) = closestH centre vecs tup (vlen ((snd tup) - centre))
 
-trace :: [Face] -> Vec3 -> Ray -> Int -> Vec3
-trace faces exposure ray 3 = nullcol
-trace faces exposure (Ray pos dir) depth = 
+trace :: [Face] -> Vec3 -> Int -> Ray -> Vec3
+trace faces exposure 3 ray = nullcol
+trace faces exposure depth (Ray pos dir) = 
     if(null hitpoints) 
         then (exposure * bgcolor) 
         else if(emissive face) 
             then (exposure * (getCol face)) 
-            else (trace faces (exposure * (getCol face)) (Ray hit (reflectFace face dir)) (depth+1)) 
+            else (trace faces (exposure * (getCol face)) (depth+1) (Ray hit (reflectFace face dir))) 
                 where 
                     hitpoints = intersectAll faces (Ray pos dir)
                     res = (closest pos hitpoints)
@@ -233,14 +233,17 @@ getCamRay (width, height, fov) (widthi, heighti) (Ray pos dir) = (Ray pos rotate
     yang = remap (0.0, height) ((-(fov * (width / height))), (fov * (width / height))) heighti
     rotated = (rotateY yang (rotateX xang dir))
 
-traceManyH :: [Face] -> (Float, Float, Float) -> Ray -> (Float, Float) -> [Vec3] -> [Vec3]
-traceManyH faces (width, height, fov) cam (wi, hi) resPixels = 
-    if(hi >= height) then resPixels
-        else if(wi >= width) then traceManyH faces (width, height, fov) cam (0.1, hi+1.0) resPixels
-            else traceManyH faces (width, height, fov) cam (wi+1, hi) ((trace faces (fVec3 1.0) (getCamRay (width, height, fov) (wi, hi) cam) 0):resPixels)
+getCamRaysH :: (Float, Float, Float) -> Ray -> (Float, Float) -> [Ray] -> [Ray]
+getCamRaysH (width, height, fov) cam (wi, hi) res
+    | (hi >= height) = res
+    | (wi >= width) = getCamRaysH (width, height, fov) cam (0, hi+1) res
+    | otherwise = getCamRaysH (width, height, fov) cam (wi+1, hi) ((getCamRay (width, height, fov) (wi, hi) cam ):res)
+
+getCamRays :: (Float, Float, Float) -> Ray -> [Ray]
+getCamRays screendata cam = getCamRaysH screendata cam (0.1, 0.1) [] 
 
 traceMany :: [Face] -> (Float, Float, Float) -> Ray -> [Vec3]
-traceMany faces screendata cam = traceManyH faces screendata cam (0.1, 0.1) []
+traceMany faces screendata cam = map (trace faces (Vec3 1.0 1.0 1.0) 0) (getCamRays screendata cam)
 
 
 to_material :: String -> Material
