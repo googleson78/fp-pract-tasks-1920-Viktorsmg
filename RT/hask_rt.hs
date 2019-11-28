@@ -256,9 +256,9 @@ remap (oldmin, oldmax) (newmin, newmax) val = ((1.0-fac)*newmin)+(fac*newmax) wh
 -- TODO: Add distortion correction and maybe rotate camera a little
 getCamRay :: (Float, Float, Float) -> (Float, Float) -> Ray -> Ray
 getCamRay (width, height, fov) (widthi, heighti) (Ray pos dir) = (Ray pos rotated) where
-    xang = remap (0.0, width) (-fov, fov) widthi
-    yang = remap (0.0, height) ((-(fov * (width / height))), (fov * (width / height))) heighti
-    rotated = (rotateY yang (rotateX xang dir))
+    ang1 = remap (0.0, width) (-fov, fov) widthi
+    ang2 = remap (0.0, height) ((-(fov * (width / height))), (fov * (width / height))) heighti
+    rotated = (rotateX ang2 (rotateY ang1 dir))
 
 getCamRaysH :: (Float, Float, Float) -> Ray -> (Float, Float) -> [Ray] -> [Ray]
 getCamRaysH (width, height, fov) cam (wi, hi) res
