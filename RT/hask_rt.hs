@@ -30,6 +30,9 @@ scalMul (Vec3 x1 y1 z1) (Vec3 x2 y2 z2) = (x1*x2)+(y1*y2)+(z1*z2)
 vlen :: Vec3 -> Float
 vlen v = sqrt (scalMul v v)
 
+dist :: Vec3 -> Vec3 -> Float
+dist v1 v2 = vlen (v2-v1)
+
 normalize :: Vec3 -> Vec3
 normalize (Vec3 x y z) = Vec3 (x/len) (y/len) (z/len)
   where len = vlen (Vec3 x y z)
@@ -75,7 +78,7 @@ changeBase :: Vec3 -> (Vec3, Vec3, Vec3) -> Vec3
 changeBase (Vec3 x y z) (b1, b2, b3) = ((fVec3 x) * b1) + ((fVec3 y) * b2) + ((fVec3 z) * b3)
 
 chooseBase :: Vec3 -> Vec3
-chooseBase (Vec3 x y z) = if (x > 0.0) then (Vec3 1.0 0.0 0.0) else (Vec3 0.0 1.0 0.0)
+chooseBase (Vec3 x y z) = if ((abs (x)) < 0.5) then (Vec3 1.0 0.0 0.0) else (Vec3 0.0 1.0 0.0)
 
 randomHemisphereVec3 :: Vec3 -> Float -> Vec3
 randomHemisphereVec3 dir roughness = changeBase (randomZAxisHemisphereVec3 roughness) (b3, b2, b1) where
@@ -142,13 +145,13 @@ flatNormal (Face (Vertex p1 _) (Vertex p2 _) (Vertex p3 _) _) = normalize (vecMu
 
 -- TODO: better pattern matching here?
 reflectFace :: Face -> Vec3 -> Vec3
-reflectFace (Face p1 p2 p3 (Diffuse col)) dir = randomHemisphereVec3 (normal (Face p1 p2 p3 (Diffuse col))) 0.0
+reflectFace (Face p1 p2 p3 (Diffuse col)) dir = randomHemisphereVec3 (normal (Face p1 p2 p3 (Diffuse col))) 1.0
 reflectFace (Face p1 p2 p3 (Mirror col)) dir = reflect dir (normal (Face p1 p2 p3 (Mirror col)))
 reflectFace (Face p1 p2 p3 (Glossy col roughness)) dir = ((fVec3 (1.0 - roughness)) * (reflect dir (normal (Face p1 p2 p3 (Glossy col roughness))))) - 
     ((fVec3 roughness) * (randomHemisphereVec3 (normal (Face p1 p2 p3 (Glossy col roughness))) 0.0))
 
 reflectFaceSeeded :: Face -> Vec3 -> Float -> Vec3
-reflectFaceSeeded (Face p1 p2 p3 (Diffuse col)) dir seed = randomHemisphereVec3Seeded (normal (Face p1 p2 p3 (Diffuse col))) 0.0 seed
+reflectFaceSeeded (Face p1 p2 p3 (Diffuse col)) dir seed = randomHemisphereVec3Seeded (normal (Face p1 p2 p3 (Diffuse col))) 1.0 seed
 reflectFaceSeeded face dir seed = reflectFace face dir
 
 firstP :: Face -> Vec3
@@ -185,7 +188,7 @@ inside v (Face (Vertex a _) (Vertex b _) (Vertex c _) _) = epsEq (area a b c) ((
 
 intersectAllH :: [Face] -> Ray -> [(Face, Vec3)] -> [(Face, Vec3)]
 intersectAllH [] _ res = res
-intersectAllH (fc:faces) ray res = intersectAllH faces ray (if (inside itp fc) then (fc, itp):res else res) where itp=intersectFace fc ray
+intersectAllH (fc:faces) ray res = intersectAllH faces ray (if (and [(inside itp fc), (dist itp (rayPos ray)) > 0.03]) then (fc, itp):res else res) where itp=intersectFace fc ray
 
 intersectAll :: [Face] -> Ray -> [(Face, Vec3)]
 intersectAll faces ray = intersectAllH faces ray []
@@ -199,7 +202,7 @@ closest centre [] = (nullFace, centre)
 closest centre (tup:vecs) = closestH centre vecs tup (vlen ((snd tup) - centre))
 
 trace :: [Face] -> Vec3 -> Int -> Ray -> Vec3
-trace faces exposure 3 ray = nullcol
+trace faces exposure 8 ray = nullcol
 trace faces exposure depth (Ray pos dir) = 
     if(null hitpoints) 
         then (exposure * bgcolor) 
@@ -213,7 +216,7 @@ trace faces exposure depth (Ray pos dir) =
                     hit = (snd res)
 
 traceSeeded :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
-traceSeeded _ _ 3 _ _ = nullcol
+traceSeeded _ _ 8 _ _ = nullcol
 traceSeeded faces exposure depth (Ray pos dir) seed = 
     if(null hitpoints) 
         then (exposure * bgcolor) 
@@ -289,7 +292,7 @@ nextRand2 :: Float -> Float
 nextRand2 f = fract ( cos( (f * 7876.2371) / (f + 231.31) ) * 93172.6584);
 
 nextRand3 :: Float -> Float
-nextRand3 f = fract ( (cos( (f - 4134.7546) / (f * 43.31) ) * 15486.314 ) + 432.3139412);
+nextRand3 f = fract ( (sin( (f - 4134.7546) / (f * 43.31) ) * 15486.314 ) + 432.3139412);
 
 makeRandomArray :: Float -> Float -> [Float]
 makeRandomArray seed length 
@@ -495,7 +498,7 @@ camdir = (Vec3 (0.0) (0.0) (-1.0))
 main :: IO ()
 main = do 
     -- writeFile "output" $ show $ ...
-    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeeded (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) 0.312412) ))
+    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeeded (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) 0.98412) ))
         
         
--- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
+-- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"m
