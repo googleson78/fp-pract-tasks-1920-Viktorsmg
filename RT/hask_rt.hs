@@ -286,7 +286,7 @@ traceSeededSPP :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
 traceSeededSPP faces exposure times ray seed = (traceSeededSPPH faces exposure times ray seed (Vec3 0.0 0.0 0.0)) * (fVec3 (1.0 / (fromIntegral times)))
 
 traceManySeededSPP :: [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
-traceManySeededSPP faces (w, h, fov) cam spp seed = map2 (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
+traceManySeededSPP faces (w, h, fov) cam spp seed = zipWith (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
 
 traceManySeededSPPThreaded :: Int -> [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
 traceManySeededSPPThreaded splitsize faces (w, h, fov) cam spp seed = parmap2 splitsize (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
@@ -315,12 +315,13 @@ splitListEq chunkcount [] = [[]]
 splitListEq chunkcount xs = splitListH ((div (length xs) chunkcount)+(if((mod (length xs) chunkcount) == 0) then 0 else 1)) xs 0 [[]]
 
 splitList :: Int -> [a] -> [[a]]
-splitList chunksize xs = splitListH chunksize xs 0 [[]]
+splitList _ [] = []
+splitList n xs = take n xs : splitList n (drop n xs)
 
 parmap2Presplit :: (a -> b -> c) ->[[a]] -> [[b]] -> [[c]]
 parmap2Presplit f [] _ = []
 parmap2Presplit f _ [] = []
-parmap2Presplit f (xs:xss) (ys:yss) = par2 (:) (map2 f xs ys) (parmap2Presplit f xss yss)
+parmap2Presplit f (xs:xss) (ys:yss) = par2 (:) (zipWith f xs ys) (parmap2Presplit f xss yss)
 
 parmap2 :: Int -> (a -> b -> c) -> [a] -> [b] -> [c]
 parmap2 splitsize f xs ys = reverse (concat (parmap2Presplit f (splitList splitsize xs) (splitList splitsize ys)))
@@ -343,7 +344,7 @@ nextRand3 :: Float -> Float
 nextRand3 f = sin ( fract ( tan (sin( (f - 4134.7546) / (f * 43.31) ) * 15486.314 )));
 
 nextRand4 :: Float -> Float
-nextRand4 f = sin (fract ( tan ((cos( (f / 58.7652) * (f + 534.876) ) * 8275.52444))));
+nextRand4 f = sin (fract ( tan (cos( (f / 58.7652) * (f + 534.876) ) * 8275.52444)));
 
 makeRandomArray :: Float -> Float -> [Float]
 makeRandomArray seed length 
@@ -352,13 +353,13 @@ makeRandomArray seed length
 
 -- This is needed because OBJ's default material description type suckssssssss and isn't designed for PBR
 -- Just leave this, it's for convenience
-to_material :: String -> Material
-to_material "Red" = (Diffuse red)
-to_material "Green" = (Diffuse green)
-to_material "Blue" = (Diffuse blue)
-to_material "White" = (Diffuse white)
-to_material "EWhite" = (Emission ((fVec3 10.0)*white))
-to_material str = (Emission purple)
+toMaterial :: String -> Material
+toMaterial "Red" = Diffuse red
+toMaterial "Green" = Diffuse green
+toMaterial "Blue" = Diffuse blue
+toMaterial "White" = Diffuse white
+toMaterial "EWhite" = Emission ((fVec3 10.0)*white)
+toMaterial str = Emission purple
 
 strListToVec3 :: [String] -> Vec3
 strListToVec3 [a, b, c] = Vec3 (read a :: Float) (read b :: Float) (read c :: Float)
@@ -395,7 +396,7 @@ data OBJLine = VertCoords Vec3 | VertNormal Vec3 | FaceIds [Int] | NewMaterial M
 
 stringToOBJLine :: String -> OBJLine
 stringToOBJLine (stripPrefix "v " -> Just rest) = VertCoords (stringToVec3 rest)
-stringToOBJLine (stripPrefix "usemtl " -> Just rest) = NewMaterial (to_material rest)
+stringToOBJLine (stripPrefix "usemtl " -> Just rest) = NewMaterial (toMaterial rest)
 stringToOBJLine (stripPrefix "vn " -> Just rest) = VertNormal (stringToVec3 rest)
 stringToOBJLine (stripPrefix "f " -> Just rest) = FaceIds (stringFaceInts rest)
 stringToOBJLine _ = Unknown
@@ -425,51 +426,12 @@ loadObj str = (trd (foldl loadObjAcc dummyLoadTup (map stringToOBJLine (lines st
 test1 :: Integer -> Integer -> Integer
 test1 x y = x + y + 1
 
-testnml = normalize ((Vec3 4.89395 2.27164 1.06102) - (Vec3 4.967 2.38159 0.951813))
-testFace = (Face (Vertex (Vec3 4.967 2.38159 0.951813) testnml) (Vertex (Vec3 5.97786 1.33133 0.570579) testnml) (Vertex (Vec3 6.13322 1.9736 1.32115) testnml) (Emission purple))
-testInPoint = (Vec3 5.48638 2.13084 1.04678) -- This point is must be inside the above triangle
-testOutPoint = testInPoint - (Vec3 1.0 0.0 0.0) -- Outside
-
-rayStart = (Vec3 4.66603 0.7049 1.40455)
-testRay = (Ray rayStart (normalize ((Vec3 4.85275 1.11379 1.27965)-rayStart)))
-
--- ! These 2 must be equal!
-correctRayItsctRes = (Vec3 5.32717 2.1527 0.96229)
-testRayItsctRes = intersectFace testFace testRay
-
-ray2Start = (Vec3 2.86 1.76955 1.75255)
-testRay2 = (Ray ray2Start (normalize ((Vec3 3.31157 1.7871 1.62369) - ray2Start)))
-
--- ! These 2 must also be equal!
-correctRay2ItsctRes = (Vec3 5.70516 1.88011 0.940681)
-testRay2ItsctRes = intersectFace testFace testRay2
-
-testnml2 = normalize ((Vec3 6.5812 0.948004 2.01006) - (Vec3 6.89339 0.999453 1.88656))
-testFace2 = (Face (Vertex (Vec3 6.89339 0.999453 1.88656) testnml2) (Vertex (Vec3 6.72319 (-0.366578) 0.88728) testnml2) (Vertex (Vec3 7.51779 (-0.6984) 2.75762) testnml2) (Emission purple))
-
-ray3Start = (Vec3 6.28387 (-0.557073) 4.55117)
-testRay3 = (Ray ray3Start (normalize ((Vec3 6.38274 (-0.477723) 4.25429) - ray3Start)))
-
--- ! Also equal!
-correctRay3ItsctRes = (Vec3 7.11149 0.107107 2.06615)
-testRay3ItsctRes = intersectFace testFace2 testRay3
-
-
--- !     :anger:   my haskell doesn't want to recognize Word8 or GHC.Word.Word8 as types, but will gladly make functions that return those exact same types
-
 -- ? Should the \0 also be written?
 bmpFilename = [(w8 (fromEnum 'B')), (w8 (fromEnum 'M'))]
 
 getExtraBytes :: Int -> Int
 getExtraBytes w = mod (4 - (mod (w * 3) 4)) 4
 -- Padding for lines so they're all a multiple of 4 bytes long
-
-mkExtraBytes :: Int -> [Word8]
-mkExtraBytes 0 = []
-mkExtraBytes 1 = [(w8 0)]
-mkExtraBytes 2 = [(w8 0), (w8 0)]
-mkExtraBytes 3 = [(w8 0), (w8 0), (w8 0)]
--- mkExtraBytes _ = undefined -- ! <-This should never be called
 
 mkExtraBytesIns 0 res = res
 mkExtraBytesIns 1 res = (w8 0):res
@@ -531,11 +493,11 @@ fov :: Float
 fov = 45.0                                 -- 39.5978 to fit the box almost exactly to the camera, use this to test for fixing the distortion?
 
 campos :: Vec3
-campos = (Vec3 (0.0) (0.0) (-15.0))
+campos = Vec3 (0.0) (0.0) (-15.0)
 
 -- This will be normalized for you, you pleb
 camdir :: Vec3
-camdir = (Vec3 (0.0) (0.0) (-1.0))
+camdir = Vec3 (0.0) (0.0) (-1.0)
 
 samples = 5
 
