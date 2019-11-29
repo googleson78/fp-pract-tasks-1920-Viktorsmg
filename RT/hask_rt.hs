@@ -8,6 +8,7 @@ import Numeric
 import Data.Bits
 import Data.Bits.Extras
 import GHC.Word
+import Control.Parallel
 import qualified Data.ByteString.Lazy as BL
 
 data Vec3 = Vec3{x :: Float, y :: Float, z :: Float}
@@ -69,8 +70,8 @@ randomZAxisHemisphereVec3 roughness = let
 
 randomZAxisHemisphereVec3Seeded :: Float -> Float -> Vec3
 randomZAxisHemisphereVec3Seeded roughness seed = let
-    z = randItvlSeeded (cos (roughness * pi)) 1 seed
-    angle = randItvlSeeded (-pi) (pi) (nextRand3 seed)
+    z = randItvlSeeded (cos (roughness * pi)) 1 (nextRand3 seed)
+    angle = randItvlSeeded (-pi) (pi) (nextRand1 (nextRand3 seed))
     r = sqrt (1.0 - (z * z))
     in Vec3 (r * (sin angle)) (r * (cos angle)) z
 
@@ -162,8 +163,9 @@ intersectFace :: Face -> Ray -> Vec3
 --intersectFace face (Ray pos dir) = (lerp pos (pos+dir) ((scalMul n (firstP face)) / (scalMul n dir)))
 --intersectFace face (Ray pos dir) = (lerp pos (pos+dir) ((-((scalMul n pos) + (scalMul n (firstP face)))) / (scalMul n dir)))
 --    where n = flatNormal face
-intersectFace face (Ray l0 l) = l0 + ((fVec3 (((scalMul ((firstP face)-l0) n) / (scalMul l n)))) * l) where
+intersectFace face (Ray l0 l) = l0 + ((fVec3 (if(d<0.0) then d else (1000.0*d))) * l) where
     n = (normal face)
+    d = (((scalMul ((firstP face)-l0) n) / (scalMul l n)))
 
 bounded :: Float -> Float -> Float -> Bool
 bounded min max x = (min <= x) && (max >= x)
@@ -222,7 +224,7 @@ traceSeeded faces exposure depth (Ray pos dir) seed =
         then (exposure * bgcolor) 
         else if(emissive face) 
             then (exposure * (getCol face)) 
-            else (traceSeeded faces (exposure * (getCol face)) (depth+1) (Ray hit (reflectFaceSeeded face dir seed)) (nextRand1 seed)) 
+            else (traceSeeded faces (exposure * (getCol face)) (depth+1) (Ray hit (reflectFaceSeeded face dir (nextRand3 seed))) (nextRand1 (nextRand2 seed))) 
                 where 
                     hitpoints = intersectAll faces (Ray pos dir)
                     res = (closest pos hitpoints)
@@ -276,38 +278,72 @@ traceManySeeded :: [Face] -> (Float, Float, Float) -> Ray -> Float -> [Vec3]
 traceManySeeded faces (w, h, fov) cam seed = map2 (traceSeeded faces (Vec3 1.0 1.0 1.0) 0) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
 
 --[Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
-traceSeededSPPH :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
-traceSeededSPPH faces exposure 1 ray seed = traceSeeded faces exposure 0 ray seed
-traceSeededSPPH faces exposure times ray seed = (traceSeeded faces exposure 0 ray seed) + (traceSeededSPPH faces exposure (times - 1) ray (nextRand2 seed))
+traceSeededSPPH :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3 -> Vec3
+traceSeededSPPH faces exposure 0 ray seed res = res
+traceSeededSPPH faces exposure times ray seed res = (traceSeededSPPH faces exposure (times - 1) ray (nextRand2 seed) (res+(traceSeeded faces exposure 0 ray seed)))
 
 traceSeededSPP :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
-traceSeededSPP faces exposure times ray seed = (traceSeededSPPH faces exposure times ray seed) * (fVec3 (1.0 / (fromIntegral times)))
+traceSeededSPP faces exposure times ray seed = (traceSeededSPPH faces exposure times ray seed (Vec3 0.0 0.0 0.0)) * (fVec3 (1.0 / (fromIntegral times)))
 
 traceManySeededSPP :: [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
 traceManySeededSPP faces (w, h, fov) cam spp seed = map2 (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
 
+traceManySeededSPPThreaded :: Int -> [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
+traceManySeededSPPThreaded splitsize faces (w, h, fov) cam spp seed = parmap2 splitsize (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
+
+
+par2 :: (a -> b -> c) -> a -> b -> c
+par2 f x y = x `par` y `par` f x y
 
 map2 :: (a -> b -> c) -> [a] -> [b] -> [c]
 map2 f [] _ = []
 map2 f _ [] = []
 map2 f (a:as) (b:bs) = (f a b):(map2 f as bs)
 
+
+splitListH :: Int -> [a] -> Int -> [[a]] -> [[a]]
+splitListH chunksize [] chunki res = res
+splitListH chunksize (x:xs) chunki ([]:ress) = splitListH chunksize xs (chunki+1) ([x]:ress)
+splitListH chunksize (x:xs) chunki ((re:res):ress)
+    | (chunki == chunksize) = splitListH chunksize (x:xs) 0 ([]:(re:res):ress)
+    | otherwise = splitListH chunksize xs (chunki+1) ((x:(re:res)):ress)
+
+-- Splits a list into (firstparam) pieces of roughly the same size.
+-- Last piece has the off-size.
+splitListEq :: Int -> [a] -> [[a]]
+splitListEq chunkcount [] = [[]]
+splitListEq chunkcount xs = splitListH ((div (length xs) chunkcount)+(if((mod (length xs) chunkcount) == 0) then 0 else 1)) xs 0 [[]]
+
+splitList :: Int -> [a] -> [[a]]
+splitList chunksize xs = splitListH chunksize xs 0 [[]]
+
+parmap2Presplit :: (a -> b -> c) ->[[a]] -> [[b]] -> [[c]]
+parmap2Presplit f [] _ = []
+parmap2Presplit f _ [] = []
+parmap2Presplit f (xs:xss) (ys:yss) = par2 (:) (map2 f xs ys) (parmap2Presplit f xss yss)
+
+parmap2 :: Int -> (a -> b -> c) -> [a] -> [b] -> [c]
+parmap2 splitsize f xs ys = reverse (concat (parmap2Presplit f (splitList splitsize xs) (splitList splitsize ys)))
+
+
 fract :: Float -> Float
 fract x 
     | (x > 0) = x - (fromIntegral (floor x))
     | otherwise = x - (fromIntegral (ceiling x))
 
+-- TODO: BETTER RAND FUNCTIONS
+
 nextRand1 :: Float -> Float
-nextRand1 f = fract ( sin( (f / 43.1239) * (f - 9.9) ) * 43758.5453);
+nextRand1 f = cos(fract ( tan(sin( (f / 43.1239) * (f - 9.9) ) * 43758.5453)));
 
 nextRand2 :: Float -> Float
-nextRand2 f = fract ( cos( (f / 78.2371) * (f + 31.31) ) * 93172.6584);
+nextRand2 f = cos(fract ( tan(cos( (f / 78.2371) * (f + 31.31) ) * 93172.6584)));
 
 nextRand3 :: Float -> Float
-nextRand3 f = fract ( (sin( (f - 4134.7546) / (f * 43.31) ) * 15486.314 ) + 432.3139412);
+nextRand3 f = sin ( fract ( tan (sin( (f - 4134.7546) / (f * 43.31) ) * 15486.314 )));
 
 nextRand4 :: Float -> Float
-nextRand4 f = fract ( (cos( (f / 58.7652) * (f + 534.876) ) * 8275.52444) - 8412.654123);
+nextRand4 f = sin (fract ( tan ((cos( (f / 58.7652) * (f + 534.876) ) * 8275.52444))));
 
 makeRandomArray :: Float -> Float -> [Float]
 makeRandomArray seed length 
@@ -501,7 +537,7 @@ campos = (Vec3 (0.0) (0.0) (-15.0))
 camdir :: Vec3
 camdir = (Vec3 (0.0) (0.0) (-1.0))
 
-samples = 4
+samples = 5
 
 --
 --  End of camera variables
@@ -510,7 +546,7 @@ samples = 4
 main :: IO ()
 main = do 
     -- writeFile "output" $ show $ ...
-    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPP (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples (-0.344)) ))
+    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPPThreaded 10 (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples (-0.344)) ))
         
         
--- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"m
+-- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
