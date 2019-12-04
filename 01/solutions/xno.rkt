@@ -14,11 +14,13 @@
     (define (winln ln)
         (all? (lambda (x) (equal? x s)) ln)
     )
-    (if (or
-        (any? winln (rows b))
-        (any? winln (cols b))
-        (any? winln (diags b))
-    ) s #f)
+    (if 
+    (ormap (lambda (ln) (any? winln ln)) (list (rows b) (diags b) (cols b))); Much harder to read than below text *to me*
+    ;(or                                          Fun fact: both have almost the exact same character count (71\/ vs 72^), barring new lines and such
+    ;   (any? winln (rows b))
+    ;   (any? winln (cols b))
+    ;   (any? winln (diags b)))
+    s #f)
 )
 
 (define (anymat? p? xss)
@@ -88,8 +90,7 @@
 ; Returns 1, 0, -1 for the board, currpos and has0 are internal "variables" (use first-free and -1)
 (define (play-val b s currpos has0)
   (let ((w (winner-val b s)))
-    (if w
-      w
+    (or w
       (if currpos
         (let ((p (play-val (placep b currpos s) (flip s) (first-free (placep b currpos s)) -1)))
           (cond

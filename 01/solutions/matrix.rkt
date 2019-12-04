@@ -37,8 +37,18 @@
 ; 03.
 (define (rows xss) xss)
 
+
 ; 04.
-(define (cols xss) (apply map list xss))
+
+(define (atob a b)
+    (if (> a b)
+        '()
+        (cons a (atob (+ a 1) b))
+    )
+)
+
+;(define (cols xss) (apply map list xss))
+(define (cols xss) (foldr (lambda (idx res) (cons (foldr (lambda (new acc) (cons (list-ref new idx) acc)) '() xss) res)) '() (atob 0 ( - (length (car xss)) 1))))
 
 ; 05.
 (define (matrix-ref xss i j)
