@@ -269,13 +269,13 @@ getCamRaysH (width, height, fov) cam (wi, hi) res
     | otherwise = getCamRaysH (width, height, fov) cam (wi+1, hi) ((getCamRay (width, height, fov) (wi, hi) cam ):res)
 
 getCamRays :: (Float, Float, Float) -> Ray -> [Ray]
-getCamRays screendata cam = getCamRaysH screendata cam (0.1, 0.1) [] 
+getCamRays screendata cam = reverse $ getCamRaysH screendata cam (0.1, 0.1) [] 
 
 traceMany :: [Face] -> (Float, Float, Float) -> Ray -> [Vec3]
 traceMany faces screendata cam = map (trace faces (Vec3 1.0 1.0 1.0) 0) (getCamRays screendata cam)
 
-traceManySeeded :: [Face] -> (Float, Float, Float) -> Ray -> Float -> [Vec3]
-traceManySeeded faces (w, h, fov) cam seed = map2 (traceSeeded faces (Vec3 1.0 1.0 1.0) 0) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
+traceManySeeded :: [Face] -> (Float, Float, Float) -> Ray -> StdGen -> [Vec3]
+traceManySeeded faces (w, h, fov) cam gen = map2 (traceSeeded faces (Vec3 1.0 1.0 1.0) 0) (getCamRays (w, h, fov) cam) (makeRandomArray gen (w*h))
 
 --[Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
 traceSeededSPPH :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3 -> Vec3
@@ -285,11 +285,11 @@ traceSeededSPPH faces exposure times ray seed res = (traceSeededSPPH faces expos
 traceSeededSPP :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
 traceSeededSPP faces exposure times ray seed = (traceSeededSPPH faces exposure times ray seed (Vec3 0.0 0.0 0.0)) * (fVec3 (1.0 / (fromIntegral times)))
 
-traceManySeededSPP :: [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
-traceManySeededSPP faces (w, h, fov) cam spp seed = zipWith (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
+traceManySeededSPP :: [Face] -> (Float, Float, Float) -> Ray -> Int -> StdGen -> [Vec3]
+traceManySeededSPP faces (w, h, fov) cam spp gen = zipWith (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray gen (w*h))
 
-traceManySeededSPPThreaded :: Int -> [Face] -> (Float, Float, Float) -> Ray -> Int -> Float -> [Vec3]
-traceManySeededSPPThreaded splitsize faces (w, h, fov) cam spp seed = parmap2 splitsize (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray seed (w*h))
+traceManySeededSPPThreaded :: Int -> [Face] -> (Float, Float, Float) -> Ray -> Int -> StdGen -> [Vec3]
+traceManySeededSPPThreaded splitsize faces (w, h, fov) cam spp gen = parmap2 splitsize (traceSeededSPP faces (Vec3 1.0 1.0 1.0) spp) (getCamRays (w, h, fov) cam) (makeRandomArray gen (w*h))
 
 
 par2 :: (a -> b -> c) -> a -> b -> c
@@ -346,10 +346,17 @@ nextRand3 f = sin ( fract ( tan (sin( (f - 4134.7546) / (f * 43.31) ) * 15486.31
 nextRand4 :: Float -> Float
 nextRand4 f = sin (fract ( tan (cos( (f / 58.7652) * (f + 534.876) ) * 8275.52444)));
 
-makeRandomArray :: Float -> Float -> [Float]
-makeRandomArray seed length 
+makeRandomArray :: StdGen -> Float -> [Float]
+makeRandomArray gen length 
     | (length < 0.1) = []
-    | otherwise = seed:(makeRandomArray (nextRand4 seed) (length-1))
+    | otherwise = take (round length) $ (randomRs (-1.0, 1.0) gen)
+
+
+
+
+----------------------------------------------------------------------
+--                                OBJ
+----------------------------------------------------------------------
 
 -- This is needed because OBJ's default material description type suckssssssss and isn't designed for PBR
 -- Just leave this, it's for convenience
@@ -423,10 +430,12 @@ trd (_, _, a, _) = a
 loadObj :: String -> [Face]
 loadObj str = (trd (foldl loadObjAcc dummyLoadTup (map stringToOBJLine (lines str))))
 
-test1 :: Integer -> Integer -> Integer
-test1 x y = x + y + 1
 
--- ? Should the \0 also be written?
+----------------------------------------------------------------------
+--                                BMP
+----------------------------------------------------------------------
+
+
 bmpFilename = [(w8 (fromEnum 'B')), (w8 (fromEnum 'M'))]
 
 getExtraBytes :: Int -> Int
@@ -499,7 +508,7 @@ campos = Vec3 (0.0) (0.0) (-15.0)
 camdir :: Vec3
 camdir = Vec3 (0.0) (0.0) (-1.0)
 
-samples = 5
+samples = 1
 
 --
 --  End of camera variables
@@ -508,7 +517,11 @@ samples = 5
 main :: IO ()
 main = do 
     -- writeFile "output" $ show $ ...
-    BL.writeFile "render.bmp" (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPPThreaded 10 (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples (-0.344)) ))
+    gen <- newStdGen
+    BL.writeFile "render.bmp" 
+        (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPPThreaded 10 
+        (loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18") 
+        (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples gen) ))
         
         
 -- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
