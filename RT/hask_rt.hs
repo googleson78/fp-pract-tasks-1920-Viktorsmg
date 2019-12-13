@@ -255,21 +255,40 @@ rotateX angle (Vec3 a b c) = (Vec3
 remap :: (Float, Float) -> (Float, Float) -> Float -> Float
 remap (oldmin, oldmax) (newmin, newmax) val = ((1.0-fac)*newmin)+(fac*newmax) where fac = (val - oldmin) / (oldmax - oldmin)
 
--- TODO: Add distortion correction and maybe rotate camera a little
-getCamRay :: (Float, Float, Float) -> (Float, Float) -> Ray -> Ray
-getCamRay (width, height, fov) (widthi, heighti) (Ray pos dir) = (Ray pos rotated) where
+-- TODO: Rewrite ray-generating functions to use oriented camera
+data Camera = Camera {looker :: Ray, camUp :: Vec3, camWidth :: Float, camHeight :: Float}
+
+getCamRayPolar :: (Float, Float, Float) -> (Float, Float) -> Ray -> Ray
+getCamRayPolar (width, height, fov) (widthi, heighti) (Ray pos dir) = (Ray pos rotated) where
     ang1 = remap (0.0, width) (-fov, fov) widthi
     ang2 = remap (0.0, height) ((-(fov * (width / height))), (fov * (width / height))) heighti
     rotated = (rotateX ang2 (rotateY ang1 dir))
 
-getCamRaysH :: (Float, Float, Float) -> Ray -> (Float, Float) -> [Ray] -> [Ray]
-getCamRaysH (width, height, fov) cam (wi, hi) res
+getCamRayLerp :: (Float, Float, Float) -> (Float, Float) -> Ray -> Ray
+getCamRayLerp (w, h, fov) (wi, hi) (Ray pos dir) = (Ray pos (lerp (lerp baseCorner sideCorner1 (remap (0, w) (0, 1) wi)) sideCorner2 (remap (0, h) (0, 1) hi))) where
+    hfov = (fov * (w / h))
+    baseCorner = (rotateY hfov (rotateX fov dir))
+    sideCorner1 = (rotateY (-hfov) (rotateX fov dir))
+    sideCorner2 = (rotateY hfov (rotateX (-fov) dir))
+
+getCamRayUpDir :: (Float, Float, Float) -> (Float, Float) -> Ray -> Ray
+getCamRayUpDir (w, h, fov) (wi, hi) (Ray pos dir) = (Ray pos (normalize (corner + ((fVec3 (remap (0, w-1) (0, 1) wi)) * sideVec) + ((fVec3 (remap (0, h-1) (0, 1) hi)) * upVec) ))) where
+    hfov = (fov * (w / h))
+    upVec = (Vec3 0.0 1.0 0.0) * (fVec3 (1 / (remap (0, 180) (1, 0) fov)))
+    sideVec = (normalize (vecMul dir upVec)) * (fVec3 (1 / (remap (0, 180) (1, 0) hfov)))
+    corner = dir - (upVec * (fVec3 0.5)) - (sideVec * (fVec3 0.5))
+
+getCamRaysH :: ((Float, Float, Float) -> (Float, Float) -> Ray -> Ray) -> (Float, Float, Float) -> Ray -> (Float, Float) -> [Ray] -> [Ray]
+getCamRaysH getter (width, height, fov) cam (wi, hi) res
     | (hi >= height) = res
-    | (wi >= width) = getCamRaysH (width, height, fov) cam (0, hi+1) res
-    | otherwise = getCamRaysH (width, height, fov) cam (wi+1, hi) ((getCamRay (width, height, fov) (wi, hi) cam ):res)
+    | (wi >= width) = getCamRaysH getter (width, height, fov) cam (0, hi+1) res
+    | otherwise = getCamRaysH getter (width, height, fov) cam (wi+1, hi) ((getter (width, height, fov) (wi, hi) cam ):res)
+
+getCamRaysPolar :: (Float, Float, Float) -> Ray -> [Ray]
+getCamRaysPolar screendata cam = reverse $ getCamRaysH getCamRayPolar screendata cam (0.1, 0.1) []
 
 getCamRays :: (Float, Float, Float) -> Ray -> [Ray]
-getCamRays screendata cam = reverse $ getCamRaysH screendata cam (0.1, 0.1) [] 
+getCamRays screendata cam = reverse $ getCamRaysH getCamRayUpDir screendata cam (0.1, 0.1) []
 
 traceMany :: [Face] -> (Float, Float, Float) -> Ray -> [Vec3]
 traceMany faces screendata cam = map (trace faces (Vec3 1.0 1.0 1.0) 0) (getCamRays screendata cam)
