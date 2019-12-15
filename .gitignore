@@ -3,3 +3,5 @@ compiled
 *.dep
 *.zo
 *~
+.stack-work
+02/third-hw.cabal
