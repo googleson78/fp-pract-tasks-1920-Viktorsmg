@@ -180,20 +180,13 @@ area v1 v2 v3 = vlen (vecMul (v2-v1) (v3-v1))
 inside :: Vec3 -> Face -> Bool
 inside v (Face (Vertex a _) (Vertex b _) (Vertex c _) _) = epsEq (area a b c) ((area a b v) + (area a c v) + (area b c v))
 
--- ! Barycentric coordinate version, possibly not working
--- inside :: Vec3 -> Face -> Bool
--- inside v (Face (Vertex a _) (Vertex b _) (Vertex c _) _) = (bounded 0 1 alpha) && (bounded 0 1 beta) && (bounded 0 1 gamma) && (epsEq 1 ((alpha + beta) + gamma)) where 
---     area = (vlen (vecMul (b-a) (c-a))) / 2.0
---     alpha = (vlen (vecMul (b-v) (c-v))) / (2.0 * area)
---     beta = (vlen (vecMul (c-v) (a-v))) / (2.0 * area)
---     gamma = 1 - (alpha + beta)
-
-intersectAllH :: [Face] -> Ray -> [(Face, Vec3)] -> [(Face, Vec3)]
-intersectAllH [] _ res = res
-intersectAllH (fc:faces) ray res = intersectAllH faces ray (if (and [(inside itp fc), (dist itp (rayPos ray)) > 0.03]) then (fc, itp):res else res) where itp=intersectFace fc ray
+--Curry this on its ray
+foldIntersect :: Ray -> [(Face, Vec3)] -> Face
+foldIntersect ray acc face =  if (and [(inside itp face), (dist itp (rayPos ray)) > 0.03]) then (face, itp):acc else acc where 
+    itp = intersectFace face ray
 
 intersectAll :: [Face] -> Ray -> [(Face, Vec3)]
-intersectAll faces ray = intersectAllH faces ray []
+intersectAll faces ray = foldl' (foldIntersect ray) [] faces
 
 closestH :: Vec3 -> [(Face, Vec3)] -> (Face, Vec3) -> Float -> (Face, Vec3)
 closestH centre [] res len = res
@@ -253,7 +246,8 @@ rotateX angle (Vec3 a b c) = (Vec3
         )
 
 remap :: (Float, Float) -> (Float, Float) -> Float -> Float
-remap (oldmin, oldmax) (newmin, newmax) val = ((1.0-fac)*newmin)+(fac*newmax) where fac = (val - oldmin) / (oldmax - oldmin)
+remap (oldmin, oldmax) (newmin, newmax) val = ((1.0-fac)*newmin)+(fac*newmax) where 
+    fac = (val - oldmin) / (oldmax - oldmin)
 
 -- TODO: Rewrite ray-generating functions to use oriented camera
 data Camera = Camera {looker :: Ray, camUp :: Vec3, camWidth :: Float, camHeight :: Float}
