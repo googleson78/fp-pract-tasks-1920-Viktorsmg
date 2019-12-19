@@ -7,8 +7,7 @@ module StuffNonEmpty
     , classifyOnNonEmpty
     ) where
 
-import Stuff (sortOn, sortBy, on, (&&&))
-import Stuff (tupify)
+import Stuff (sortOn, sortBy, on, (&&&), tupify)
 
 data NonEmpty a = a :| [a]
     deriving (Show, Eq, Ord)
@@ -24,7 +23,7 @@ insertGroupGlobalNE :: (a -> a -> Bool) -> a -> [NonEmpty a] -> [NonEmpty a]
 insertGroupGlobalNE _ x [] = [x:|[]]
 insertGroupGlobalNE eq x ((y:|ys):yss)
     | x `eq` y = (x:|y:ys):yss
-    | otherwise = (y:|ys):(insertGroupGlobalNE eq x yss)
+    | otherwise = (y:|ys):insertGroupGlobalNE eq x yss
 
 superGrouperNE :: ((a -> a -> Bool) -> a -> [NonEmpty a] -> [NonEmpty a]) -> (a -> a -> Bool) -> [a] -> [NonEmpty a]
 superGrouperNE _ _ [] = []
@@ -32,7 +31,7 @@ superGrouperNE _ _ [x] = [x:|[]]
 superGrouperNE inserter eq (x:xs) = inserter eq x $ superGrouperNE inserter eq xs
 
 groupNonEmpty :: Eq a => [a] -> [NonEmpty a]
-groupNonEmpty xs = superGrouperNE insertGroupNE (==) xs
+groupNonEmpty = superGrouperNE insertGroupNE (==)
 
 mapNE :: (a -> b) -> NonEmpty a -> NonEmpty b
 mapNE f (a:|xs) = (f a):|(map f xs)
@@ -41,7 +40,7 @@ mapNonEmpty :: (a -> b) -> NonEmpty a -> NonEmpty b
 mapNonEmpty = mapNE
 
 groupByNonEmpty :: (a -> a -> Bool) -> [a] -> [NonEmpty a]
-groupByNonEmpty eq xs = superGrouperNE insertGroupNE eq xs
+groupByNonEmpty = superGrouperNE insertGroupNE
 
 groupOnNonEmpty :: Eq b => (a -> b) -> [a] -> [NonEmpty a]
 groupOnNonEmpty mapper xs = map (mapNE snd) groupedTups where

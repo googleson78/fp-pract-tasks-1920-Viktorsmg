@@ -24,14 +24,14 @@ insertGroupGlobal _ x [[]] = [[x]]
 insertGroupGlobal eq x ([]:yss) = insertGroupGlobal eq x yss -- <- this?
 insertGroupGlobal eq x ((y:ys):yss)
     | x `eq` y = (x:y:ys):yss
-    | otherwise = (y:ys):(insertGroupGlobal eq x yss)
+    | otherwise = (y:ys):insertGroupGlobal eq x yss
 
 superGrouper :: ((a -> a -> Bool) -> a -> [[a]] -> [[a]]) -> (a -> a -> Bool) -> [a] -> [[a]]
 superGrouper _ _ [] = []
 superGrouper inserter eq (x:xs) = inserter eq x $ superGrouper inserter eq xs
 
 group :: Eq a => [a] -> [[a]]
-group xs = superGrouper insertGroup (==) xs
+group = superGrouper insertGroup (==)
 
 -- Not mandatory, delete if you don't want this.
 insertBy :: (a -> a -> Ordering) -> a -> [a] -> [a]
@@ -45,7 +45,7 @@ sortBy _ [] = []
 sortBy comp (x:xs) = insertBy comp x $ sortBy comp xs
  
 groupBy :: (a -> a -> Bool) -> [a] -> [[a]]
-groupBy eq xs = superGrouper insertGroup eq xs
+groupBy = superGrouper insertGroup
 
 -- Example use: on compare fst (5, dasfas) (8, fjda) -> LT
 on :: (b -> b -> c) -> (a -> b) -> a -> a -> c
