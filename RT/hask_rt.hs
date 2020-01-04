@@ -181,7 +181,7 @@ inside :: Vec3 -> Face -> Bool
 inside v (Face (Vertex a _) (Vertex b _) (Vertex c _) _) = epsEq (area a b c) ((area a b v) + (area a c v) + (area b c v))
 
 --Curry this on its ray
-foldIntersect :: Ray -> [(Face, Vec3)] -> Face
+foldIntersect :: Ray -> [(Face, Vec3)] -> Face -> [(Face, Vec3)]
 foldIntersect ray acc face =  if (and [(inside itp face), (dist itp (rayPos ray)) > 0.03]) then (face, itp):acc else acc where 
     itp = intersectFace face ray
 
@@ -442,7 +442,7 @@ trd :: (a, b, c, d) -> c
 trd (_, _, a, _) = a
 
 loadObj :: String -> [Face]
-loadObj str = (trd (foldl loadObjAcc dummyLoadTup (map stringToOBJLine (lines str))))
+loadObj str = (trd (foldl' loadObjAcc dummyLoadTup (map stringToOBJLine (lines str))))
 
 
 ----------------------------------------------------------------------
@@ -537,8 +537,8 @@ main = do
     -- writeFile "output" $ show $ ...
     gen <- newStdGen
     BL.writeFile "render.bmp" 
-        (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPPThreaded 10 faces_cornell_mirror
-        (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples gen) ))
+        (seq faces_cornell_mirror (BL.pack (makeBMP ((floor width), (floor height)) (traceManySeededSPPThreaded 10 faces_cornell_mirror
+        (width, height, (degToRad (fov / 2.0))) (Ray campos (normalize camdir)) samples gen) )))
         
         
 -- Path: "D:\\Users\\vikto_000\\Documents\\gh-repos\\fp-pract-tasks-1920-Viktorsmg\\RT\\hask_rt.hs"
