@@ -654,6 +654,7 @@ main = do
 -- General documentation:
 -- All functions have what they do written out above them.
 -- To get started, somehow plug an obj file* (which is really just a text file) into loadObj, which will give you a [Face]
+
 -- then plug into traceSeededSPPThreaded: 
 -- <Size of ray chunk per thread> 
 -- <Those [Face]> 
@@ -661,6 +662,8 @@ main = do
 -- (Ray <position vector> <direction vector>)
 -- <sample count>
 -- <random number generator>
+
+-- and use makeBMP on the resulting color array ([Vec3]), and export it into a bmp file using the Data.Bytestring.Laze functions.
 
 -- *As OBJ files lack proper material descriptions, use the special material names for the obj files to define materials with the specific properties.
 -- (Line 441)
