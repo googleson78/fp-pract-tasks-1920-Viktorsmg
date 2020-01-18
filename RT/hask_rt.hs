@@ -9,7 +9,7 @@ import Data.Bits
 import Data.Bits.Extras
 import GHC.Word
 import Control.Parallel
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BL
 
 data Vec3 = Vec3{x :: Float, y :: Float, z :: Float}
 
