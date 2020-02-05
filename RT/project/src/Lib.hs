@@ -11,18 +11,23 @@ import Data.Bits
 import Data.Bits.Extras
 import GHC.Word
 import Control.Parallel
+import Data.List.Split
 import qualified Data.ByteString as BL
 
-data Vec3 = Vec3{x :: Float, y :: Float, z :: Float}
+data Vec3 = Vec3{vecx :: Float, vecy :: Float, vecz :: Float}
 
 instance Show Vec3 where
-    show (Vec3 a b c) = "(" ++ show a ++ ", " ++ show b ++ ", " ++ show c ++")"
+    show (Vec3 a b c) = "(" ++ show a ++ ", " ++ show b ++ ", " ++ show c ++ ")"
 
 
 instance Num Vec3 where
     (Vec3 x1 y1 z1) + (Vec3 x2 y2 z2) = Vec3 (x1+x2) (y1+y2) (z1+z2)
     (Vec3 x1 y1 z1) - (Vec3 x2 y2 z2) = Vec3 (x1-x2) (y1-y2) (z1-z2)
     (Vec3 x1 y1 z1) * (Vec3 x2 y2 z2) = Vec3 (x1*x2) (y1*y2) (z1*z2)
+    abs (Vec3 x1 y1 z1) = Vec3 (abs x1) (abs y1) (abs z1)
+    signum (Vec3 x1 y1 z1) = Vec3 (signum x1) (signum y1) (signum z1)
+    fromInteger i = Vec3 ifloat ifloat ifloat where
+        ifloat = fromInteger i
 
 -- Makes Vec3 out of a single float
 fVec3 :: Float -> Vec3
@@ -56,24 +61,24 @@ vecMul (Vec3 x1 y1 z1) (Vec3 x2 y2 z2) = Vec3 (det y1 y2 z1 z2) (det z1 z2 x1 x2
 -- Makes it so that the given x is returned always bounded in [min, max]
 -- = min if x<min, = max if x>max
 clamp :: Float -> Float -> Float -> Float
-clamp min max x 
-    | x<min = min
-    | x>max = max 
+clamp minv maxv x 
+    | x<minv = minv
+    | x>maxv = maxv
     | otherwise = x 
 
 -- Reflect a ray using an imaginary surface's given normal
 reflect :: Vec3 -> Vec3 -> Vec3
-reflect ray normal = ray - (fVec3 2.0 * scalMul ray normal * normal)
+reflect ray nml = ray - (fVec3 (2.0 * scalMul ray nml) * nml)
 
 
 
 -- I didn't know you COULDN'T just put a random number generating function in the middle of things and have everything work without major changes.
 randItvl :: Float -> Float -> Float
-randItvl min max = 0.5 * (min + max)
+randItvl minv maxv = 0.5 * (minv + maxv)
 
 -- Returns a random number in the interval [min, max] given a seed (seed itself is [-1, 1])
 randItvlSeeded :: Float -> Float -> Float -> Float
-randItvlSeeded min max seed = remap (-1, 1) (min, max) (nextRand3 seed)
+randItvlSeeded minv maxv seed = remap (-1, 1) (minv, maxv) (nextRand3 seed)
 
 
 -- Polar coords
@@ -101,7 +106,7 @@ changeBase (Vec3 x y z) (b1, b2, b3) = (fVec3 x * b1) + (fVec3 y * b2) + (fVec3 
 
 -- Choose a basis for making the random hemisphere oriented.
 chooseBase :: Vec3 -> Vec3
-chooseBase (Vec3 x y z) = if abs x < 0.5 then Vec3 1.0 0.0 0.0 else Vec3 0.0 1.0 0.0
+chooseBase (Vec3 x _ _) = if abs x < 0.5 then Vec3 1.0 0.0 0.0 else Vec3 0.0 1.0 0.0
 
 -- Generates a random vector in a hemisphere around the given vector, also having the section of the hemisphere as a parameter.
 randomHemisphereVec3 :: Vec3 -> Float -> Vec3
@@ -130,29 +135,39 @@ randomHemisphereVec3Seeded dir roughness seed = changeBase (randomZAxisHemispher
 data Material = Diffuse Vec3 | Mirror Vec3 | Glossy Vec3 Float | Emission Vec3
     deriving Show
 -- A few basic colors for common use.
+red :: Vec3
 red = Vec3 1.0 0.1 0.1
+green :: Vec3
 green = Vec3 0.1 1.0 0.1
+blue :: Vec3
 blue = Vec3 0.1 0.1 1.1
+white :: Vec3
 white = Vec3 0.8 0.8 0.8
+black :: Vec3
 black = Vec3 0.05 0.05 0.05
+purple :: Vec3
 purple = Vec3 0.7 0.1 1.0
+nullcol :: Vec3
 nullcol = Vec3 0 0 0
 -- Background color. Change this to change the background. Note - the background also emits light!
+bgcolor :: Vec3
 bgcolor = Vec3 0.3 0.3 0.3
 
 data Vertex = Vertex{vertPos :: Vec3, vertNml :: Vec3}
     deriving Show
 
+nullVert :: Vertex
 nullVert = Vertex (Vec3 0.0 0.0 0.0) (Vec3 0.0 0.0 0.0)
 
 data Face = Face{faceV1 :: Vertex, faceV2 :: Vertex, faceV3 :: Vertex, faceMat :: Material}
     deriving Show
 
+nullFace :: Face
 nullFace = Face nullVert nullVert nullVert (Emission purple)
 
 -- Check if a face has an emmissive material (to stop bouncing the ray around)
 emissive :: Face -> Bool
-emissive (Face _ _ _ (Emission col)) = True
+emissive (Face _ _ _ (Emission _)) = True
 emissive _ = False
 
 -- Get a face's color
@@ -161,7 +176,7 @@ getCol (Face _ _ _ (Diffuse col)) = col
 getCol (Face _ _ _ (Mirror col)) = col
 getCol (Face _ _ _ (Glossy col _)) = col
 getCol (Face _ _ _ (Emission col)) = col
-getCol _ = nullcol
+--getCol _ = nullcol
 
 data Ray = Ray{rayPos :: Vec3, rayDir :: Vec3}
     deriving Show
@@ -184,17 +199,18 @@ flatNormal (Face (Vertex p1 _) (Vertex p2 _) (Vertex p3 _) _) = normalize (vecMu
 -- Reflects a simple ray on the given face, accounting for its material.
 -- Randomness comes into play here.
 reflectFace :: Face -> Vec3 -> Vec3
-reflectFace face@(Face _ _ _ (Diffuse _)) dir = randomHemisphereVec3 (normal face) 1.0
+reflectFace face@(Face _ _ _ (Diffuse _)) _ = randomHemisphereVec3 (normal face) 1.0
 reflectFace face@(Face _ _ _ (Mirror _)) dir = reflect dir (normal face)
 reflectFace face@(Face _ _ _ (Glossy _ roughness)) dir = (fVec3 (1.0 - roughness) * reflect dir (normal face)) - 
     (fVec3 roughness * randomHemisphereVec3 (normal face) 0.0)
 -- This isn't exactly correct ^
+reflectFace _ _ = error "Trying to reflect off unreflectable material"
 
 reflectFaceSeeded :: Face -> Vec3 -> Float -> Vec3
-reflectFaceSeeded face@(Face _ _ _ (Diffuse _)) dir seed = randomHemisphereVec3Seeded (normal face) 1.0 seed
-reflectFaceSeeded face@(Face _ _ _ (Glossy _ roughness)) dir seed = randomHemisphereVec3Seeded (normal face) roughness seed
+reflectFaceSeeded face@(Face _ _ _ (Diffuse _)) _ seed = randomHemisphereVec3Seeded (normal face) 1.0 seed
+reflectFaceSeeded face@(Face _ _ _ (Glossy _ roughness)) _ seed = randomHemisphereVec3Seeded (normal face) roughness seed
 -- Neither is this                                                      ^        but I don't know enough to make it completely correct
-reflectFaceSeeded face dir seed = reflect dir (normal face)
+reflectFaceSeeded face dir _ = reflect dir (normal face)
 
 firstP :: Face -> Vec3
 firstP (Face (Vertex p _) _ _ _) = p
@@ -213,8 +229,9 @@ intersectFace face (Ray l0 l) = l0 + (fVec3 (if d<0.0 then d else 1000.0*d ) * l
 
 -- Is x in [min, max]?
 bounded :: Float -> Float -> Float -> Bool
-bounded min max x = (min <= x) && (max >= x)
+bounded minv maxv x = (minv <= x) && (maxv >= x)
 
+eps :: Float
 eps = 0.0001
 epsEq :: Float -> Float -> Bool
 epsEq a b = abs (a-b) < eps
@@ -236,7 +253,7 @@ intersectAll faces ray = foldl' (foldIntersect ray) [] faces
 
 -- Iterative helper for finding the closest intersection point - the physical ray only hits the closest surface 
 closestH :: Vec3 -> [(Face, Vec3)] -> (Face, Vec3) -> Float -> (Face, Vec3)
-closestH centre [] res len = res
+closestH _ [] res _ = res
 closestH centre (tup:vecs) old len = if newlen < len then closestH centre vecs tup newlen else closestH centre vecs old len where 
     newlen = vlen (snd tup - centre)
 
@@ -363,7 +380,7 @@ traceManySeeded faces (w, h, fov) cam gen = map2 (traceSeeded faces (Vec3 1.0 1.
 
 --SPP = samples per pixel
 traceSeededSPPH :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3 -> Vec3
-traceSeededSPPH faces exposure 0 ray seed res = res
+traceSeededSPPH _ _ 0 _ _ res = res
 traceSeededSPPH faces exposure times ray seed res = traceSeededSPPH faces exposure (times - 1) ray (nextRand2 seed) (res+ traceSeeded faces exposure 0 ray seed)
 -- Trace a seeded ray multiple times with a slight offset, to produce a better "average" result
 traceSeededSPP :: [Face] -> Vec3 -> Int -> Ray -> Float -> Vec3
@@ -381,21 +398,23 @@ par2 f x y = x `par` y `par` f x y
 
 -- Map for 2-argument function
 map2 :: (a -> b -> c) -> [a] -> [b] -> [c]
-map2 f [] _ = []
-map2 f _ [] = []
+map2 _ [] _ = []
+map2 _ _ [] = []
 map2 f (a:as) (b:bs) = f a b : map2 f as bs
 
 splitListH :: Int -> [a] -> Int -> [[a]] -> [[a]]
-splitListH chunksize [] chunki res = res
+splitListH a b c [] = splitListH a b c [[]]
+splitListH _ [] _ res = res
 splitListH chunksize (x:xs) chunki ([]:ress) = splitListH chunksize xs (chunki+1) ([x]:ress)
 splitListH chunksize (x:xs) chunki ((re:res):ress)
     | chunki == chunksize = splitListH chunksize (x:xs) 0 ([]:(re:res):ress)
     | otherwise = splitListH chunksize xs (chunki+1) ((x:(re:res)):ress)
 
+
 -- Splits a list into (firstparam) pieces of roughly the same size.
 -- Last piece has the off-size.
 splitListEq :: Int -> [a] -> [[a]]
-splitListEq chunkcount [] = [[]]
+splitListEq _ [] = [[]]
 splitListEq chunkcount xs = splitListH (div (length xs) chunkcount + (if mod (length xs) chunkcount == 0 then 0 else 1)) xs 0 [[]]
 
 -- Split list into (firstparam)-size pieces.
@@ -410,15 +429,15 @@ parmap2 splitsize f xs ys = reverse (concat (parmap2Presplit f (splitList splits
 
 -- Parmap2 on an already split-up list
 parmap2Presplit :: (a -> b -> c) ->[[a]] -> [[b]] -> [[c]]
-parmap2Presplit f [] _ = []
-parmap2Presplit f _ [] = []
+parmap2Presplit _ [] _ = []
+parmap2Presplit _ _ [] = []
 parmap2Presplit f (xs:xss) (ys:yss) = par2 (:) (zipWith f xs ys) (parmap2Presplit f xss yss)
 
 -- Ger fractional part of a number
 fract :: Float -> Float
-fract x 
-    | x > 0 = x - fromIntegral (floor x)
-    | otherwise = x - fromIntegral (ceiling x)
+fract val 
+    | val > 0 = val - fromIntegral (floor val)
+    | otherwise = val - fromIntegral (ceiling val)
 
 -- TODO: BETTER RAND FUNCTIONS
 
@@ -436,9 +455,9 @@ nextRand4 f = sin (fract ( tan (cos( (f / 58.7652) * (f + 534.876) ) * 8275.5244
 
 -- It'S AcTuAlLy A lIsT
 makeRandomArray :: StdGen -> Float -> [Float]
-makeRandomArray gen length 
-    | length < 0.1 = []
-    | otherwise = take (round length) $ randomRs (-1.0, 1.0) gen
+makeRandomArray gen len
+    | len < 0.1 = []
+    | otherwise = take (round len) $ randomRs (-1.0, 1.0) gen
 
 
 
@@ -457,7 +476,7 @@ toMaterial "Blue" = Diffuse blue
 toMaterial "White" = Diffuse white
 toMaterial "EWhite" = Emission (fVec3 10.0 * white)
 toMaterial "Mirror" = Mirror white
-toMaterial str = Emission purple
+toMaterial _ = Emission purple
 
 
 -- Should be formatted like this, for example:
@@ -479,23 +498,28 @@ isCharNum c = (ival > fromEnum '9') && (ival < fromEnum '0') where ival = fromEn
 charToInt :: Char -> Int
 charToInt c = if isCharNum c then 0 else ival - fromEnum '0' where ival = fromEnum c
 
--- Reversed result due to being iterative!
-separateBySlashesH :: String -> [String] -> [String]
-separateBySlashesH [] ss = ss
-separateBySlashesH ('/':rest) ("":ss) = separateBySlashesH rest ("":ss)
-separateBySlashesH ('/':rest) ss = separateBySlashesH rest ("":ss)
-separateBySlashesH (char:rest) ss = separateBySlashesH rest ((char:head ss):tail ss)
+--Reversed result due to being iterative!
+--separateBySlashesH :: String -> [String] -> [String]
+--separateBySlashesH [] ss = ss
+--separateBySlashesH ('/':rest) ("":ss) = separateBySlashesH rest ("":ss)
+--separateBySlashesH ('/':rest) ss = separateBySlashesH rest ("":ss)
+--separateBySlashesH sth [] = separateBySlashesH sth [[]]
+--separateBySlashesH (char:rest) ss = separateBySlashesH rest ((char : head ss) : tail ss)
 
+-- !Check if this works
+--separateBySlashes str =  groupBy (=='/') (filter ('/' `elem`) str)
 -- In the obj files, in some lines, values are separated by slashes, e.g.  5/2/1  there are always 2 slashes and values after the first might be missing
 separateBySlashes :: String -> [String]
-separateBySlashes str = if not (null sep) && null (head sep) then tail sep else sep where sep = reverse (map reverse (separateBySlashesH str [""]))
+--separateBySlashes = filter ('/' `notElem`) . groupBy (=='/')
+separateBySlashes str = filter (/="") (splitOn "/" str)
+--separateBySlashes str = if not (null sep) && null (head sep) then tail sep else sep where sep = reverse (map reverse (separateBySlashesH str [""]))
 
 rInt :: String -> Int
-rInt = read
+rInt str = read str :: Int
 
 -- Get the face numbers that are separated by slashes
 stringFaceInts :: String -> [Int]
-stringFaceInts str = map rInt concat (map separateBySlashes (words str))
+stringFaceInts str = map rInt (concatMap separateBySlashes (words str))
 
 -- Someone suggested to me that I use special pattern matching and """DRY""" (it only inflated the code size IMO)
 data OBJLine = VertCoords Vec3 | VertNormal Vec3 | FaceIds [Int] | NewMaterial Material | Unknown
@@ -514,18 +538,21 @@ stringToOBJLine _ = Unknown
 -- and then references them by their index in the file itself when they're used (it assumes usage of arrays rather than lists, a good assumption)
 -- Once the file is completely read, the result we'll need is the array of faces
 loadObjAcc :: ([Vec3], [Vec3], [Face], Material) -> OBJLine -> ([Vec3], [Vec3], [Face], Material)
-loadObjAcc (vs, vns, fs, mat) (NewMaterial nmat) = (vs, vns, fs, nmat)
+loadObjAcc (vs, vns, fs, _) (NewMaterial nmat) = (vs, vns, fs, nmat)
 loadObjAcc (vs, vns, fs, mat) (VertCoords v) = (vs ++ [v], vns, fs, mat)
 loadObjAcc (vs, vns, fs, mat) (VertNormal vn) = (vs, vns ++ [vn], fs, mat)
 loadObjAcc (vs, vns, fs, mat) (FaceIds ids) = (vs, vns, fs ++
-    [Face 
-        (Vertex (vs !! head ids) (vns !! (ids !! 1))) -- Ето за това не харесвам хлинт толкова много - набута го тоя хед тук.
-        (Vertex (vs !! (ids !! 2)) (vns !! (ids !! 3))) 
-        (Vertex (vs !! (ids !! 4)) (vns !! (ids !! 5)))
-        mat
-        ], mat)
+    case ids of 
+        (id0:id1:id2:id3:id4:id5:_) -> [Face 
+            (Vertex (vs !! id0) (vns !! id1)) -- Ето за това не харесвам хлинт толкова много - набута го тоя хед тук.
+            (Vertex (vs !! id2) (vns !! id3))
+            (Vertex (vs !! id4) (vns !! id5))
+            mat
+            ]
+        _ -> error "Incorrect number of face indexes; are vertex normals omitted?", mat)
 loadObjAcc tup Unknown = tup
 
+dummyLoadTup :: ([Vec3], [Vec3], [Face], Material)
 dummyLoadTup = ([Vec3 1337.0 1337.0 1337.0], [Vec3 (-1337.0) (-1337.0) (-1337.0)], [], Emission purple)
 
 trd :: (a, b, c, d) -> c
@@ -545,6 +572,7 @@ loadObj str = trd (foldl' loadObjAcc dummyLoadTup (map stringToOBJLine (lines st
 
 -- This is the file type as stored in the header. Similar to an extension.
 -- I don't know why, don't look here for such information.
+bmpFiletype :: [Word8]
 bmpFiletype = [w8 (fromEnum 'B'), w8 (fromEnum 'M')]
 
 -- Padding for lines so they're all a multiple of 4 bytes long
@@ -558,7 +586,7 @@ mkExtraBytesIns 0 res = res
 mkExtraBytesIns 1 res = w8 0 : res
 mkExtraBytesIns 2 res = w8 0 : w8 0 : res
 mkExtraBytesIns 3 res = w8 0 : w8 0 : w8 0 : res
-
+mkExtraBytesIns _ _ = error "Trying to make unexpected amount of padding bytes!"
 
 -- Black magic for making the header
 -- If the header has these mystical magical numbers, everything will work juust fiine
@@ -574,7 +602,7 @@ intToWord8 val = reverse [w8 (shift val (-24)), w8 (shift val (-16)), w8 (shift 
 
 -- The headers, but in word8 type
 mkHeaders :: (Int, Int) -> [Word8]
-mkHeaders dims = concat map intToWord8 (mkHeadersInt dims)
+mkHeaders dims = concatMap intToWord8 (mkHeadersInt dims)
 
 -- Reduce a color to one that can be represented in a word8
 reduce :: Float -> Word8
@@ -587,6 +615,7 @@ reduce num
 vec3ToW8L :: Vec3 -> [Word8]
 vec3ToW8L (Vec3 r g b) = [reduce b, reduce g, reduce r]
 
+addVec3toW8L :: Vec3 -> [Word8] -> [Word8]
 addVec3toW8L (Vec3 r g b) res = reduce r : reduce g : reduce b : res
 
 colorsToW8LH :: (Int, Int) -> [Vec3] -> (Int, Int) -> [Word8] -> [Word8]
@@ -595,9 +624,11 @@ colorsToW8LH (w, h) (col:cols) (wi, hi) res
     | wi == 0 = colorsToW8LH (w, h) (col:cols) (w, hi+1) (mkExtraBytesIns (getExtraBytes w) res) --BMPs have padding at the end of each line.
     | otherwise = colorsToW8LH (w, h) cols (wi-1, hi) (addVec3toW8L col res) -- And they have their colors writen from bottom to top.
 
+
 -- Make the bmp's color array (doesn't include headers!!!)
 colorsToW8L :: (Int, Int) -> [Vec3] -> [Word8]
 colorsToW8L (w, h) (col:cols) = colorsToW8LH (w, h) cols (w-1, 0) (vec3ToW8L col)
+colorsToW8L _ [] = []
 
 -- Out of an array of colors, and its image dimensions, make an array of word8s that's ready for writing to a file.
 makeBMP :: (Int, Int) -> [Vec3] -> [Word8]
@@ -611,16 +642,16 @@ degToRad x = (x/180.0)*pi
 --    Change the values below, but not their types, to play around with the camera
 
 -- These 2 are resolutions, they might *say* float, but they shouldn't have anything after the point.
-width :: Float
-width = 1024.0
+widthRender :: Float
+widthRender = 1024.0
 
-height :: Float
-height = 1024.0
+heightRender :: Float
+heightRender = 1024.0
 
 -- This one is more true to its float type
 -- Also, is in degrees
-fov :: Float
-fov = 45.0                                 -- 39.5978 to fit the box almost exactly to the camera, use this to test for fixing the distortion?
+fovRender :: Float
+fovRender = 45.0                                 -- 39.5978 to fit the box almost exactly to the camera, use this to test for fixing the distortion?
 
 campos :: Vec3
 campos = Vec3 0.0 0.0 (-15.0)
@@ -629,6 +660,7 @@ campos = Vec3 0.0 0.0 (-15.0)
 camdir :: Vec3
 camdir = Vec3 0.0 0.0 (-1.0)
 
+samples :: Int
 samples = 1
 
 
@@ -638,8 +670,10 @@ samples = 1
 --
 
 -- A rudimentary cornell box.
+facesCornell :: [Face]
 facesCornell = loadObj "mtllib cornell_simple.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18"
 -- A cornell box with a mirror in the corner.
+facesCornellMirror :: [Face]
 facesCornellMirror = loadObj "# Blender v2.82 (sub 5) OBJ File: 'cornell.blend'\n# www.blender.org\nmtllib cornell_mirror.mtl\no Cube\nv -4.000000 -4.000000 4.000000\nv -4.000000 4.000000 4.000000\nv -4.000000 -4.000000 -4.000000\nv -4.000000 4.000000 -4.000000\nv 4.000000 -4.000000 4.000000\nv 4.000000 4.000000 4.000000\nv 4.000000 -4.000000 -4.000000\nv 4.000000 4.000000 -4.000000\nvn -1.0000 0.0000 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Green\ns off\nf 2//1 3//1 1//1\nf 2//1 4//1 3//1\nusemtl Red\nf 8//2 5//2 7//2\nf 8//2 6//2 5//2\nusemtl White\nf 6//3 1//3 5//3\nf 7//4 1//4 3//4\nf 4//5 6//5 8//5\nf 6//3 2//3 1//3\nf 7//4 5//4 1//4\nf 4//5 2//5 6//5\no Cube.001\nv 1.032842 -4.123214 2.313145\nv 1.032842 -2.123214 2.313145\nv -0.381372 -4.123214 0.898931\nv -0.381372 -2.123214 0.898931\nv 2.447055 -4.123214 0.898931\nv 2.447055 -2.123214 0.898931\nv 1.032842 -4.123214 -0.515282\nv 1.032842 -2.123210 -0.515282\nvn -0.7071 0.0000 0.7071\nvn -0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 -0.7071\nvn 0.7071 0.0000 0.7071\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl Blue\ns off\nf 10//6 11//6 9//6\nf 12//7 15//7 11//7\nf 15//8 14//8 13//8\nf 14//9 9//9 13//9\nf 15//10 9//10 11//10\nf 12//11 14//11 16//11\nf 10//6 12//6 11//6\nf 12//7 16//7 15//7\nf 15//8 16//8 14//8\nf 14//9 10//9 9//9\nf 15//10 13//10 9//10\nf 12//11 10//11 14//11\no Cube.002\nv -3.520742 -4.092613 1.154484\nv -3.520742 0.000255 1.154484\nv -2.625176 -4.092613 -0.633800\nv -2.625176 0.000255 -0.633800\nv -1.732458 -4.092613 2.050050\nv -1.732458 0.000255 2.050050\nv -0.836891 -4.092613 0.261766\nv -0.836891 0.000255 0.261766\nvn -0.8941 0.0000 -0.4478\nvn 0.4478 0.0000 -0.8941\nvn 0.8941 0.0000 0.4478\nvn -0.4478 0.0000 0.8941\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\nusemtl White\ns off\nf 18//12 19//12 17//12\nf 20//13 23//13 19//13\nf 24//14 21//14 23//14\nf 22//15 17//15 21//15\nf 23//16 17//16 19//16\nf 20//17 22//17 24//17\nf 18//12 20//12 19//12\nf 20//13 24//13 23//13\nf 24//14 22//14 21//14\nf 22//15 18//15 17//15\nf 23//16 21//16 17//16\nf 20//17 18//17 22//17\no Plane\nv -1.000000 3.900000 1.000000\nv 1.000000 3.900000 1.000000\nv -1.000000 3.900000 -1.000000\nv 1.000000 3.900000 -1.000000\nvn 0.0000 1.0000 0.0000\nusemtl EWhite\ns off\nf 26//18 27//18 25//18\nf 26//18 28//18 27//18\no Plane.002\nv 4.227553 0.141747 2.050061\nv 1.022640 0.700466 3.918530\nv 3.204612 3.633348 -0.748627\nv -0.000301 4.192067 1.119842\nvn -0.4696 -0.6318 -0.6166\nusemtl Mirror\ns off\nf 30//19 31//19 29//19\nf 30//19 32//19 31//19\n"
 
 
@@ -648,8 +682,8 @@ main = do
     -- writeFile "output" $ show $ ...
     gen <- newStdGen
     BL.writeFile "render.bmp" 
-        (seq facesCornellMirror (BL.pack (makeBMP (floor width, floor height) 
-            (traceManySeededSPPThreaded 10 facesCornellMirror (width, height, degToRad (fov / 2.0)) (Ray campos (normalize camdir)) samples gen) 
+        (seq facesCornellMirror (BL.pack (makeBMP (floor widthRender, floor heightRender) 
+            (traceManySeededSPPThreaded 10 facesCornellMirror (widthRender, heightRender, degToRad (fovRender / 2.0)) (Ray campos (normalize camdir)) samples gen) 
             )))
         
         
