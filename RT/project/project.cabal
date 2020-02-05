@@ -1,0 +1,39 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 9cff70339c0d457605261d63b2869aca32d7e230db58260ba57e977013c6a55d
+
+name:           project
+version:        0.0.0
+build-type:     Simple
+extra-source-files:
+    .hlint.yaml
+
+library
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_project
+  hs-source-dirs:
+      src
+  ghc-options: -Werror -Wincomplete-patterns -Wunused-binds -Wunused-matches -Wmissing-signatures -Wname-shadowing -Wincomplete-uni-patterns -fplugin=HLint
+  build-depends:
+      base >=4.7 && <5
+    , hlint-source-plugin
+  default-language: Haskell2010
+
+executable my-ultra-cool-project
+  main-is: Main.hs
+  other-modules:
+      Paths_project
+  hs-source-dirs:
+      app
+  ghc-options: -Werror -Wincomplete-patterns -Wunused-binds -Wunused-matches -Wmissing-signatures -Wname-shadowing -Wincomplete-uni-patterns -fplugin=HLint -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , hlint-source-plugin
+    , project
+  default-language: Haskell2010
