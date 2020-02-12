@@ -1,6 +1,13 @@
-
 RT/hask_rt.hi
 RT/hask_rt.o
 RT/project/.stack-work/
 RT/project/project.cabal
 RT/project/render.bmp
+*.log
+compiled
+*.dep
+*.zo
+*~
+.stack-work
+02/third-hw.cabal
+03/fourth-hw.cabal
